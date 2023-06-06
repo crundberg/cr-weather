@@ -1,6 +1,8 @@
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
 #include "config.h"
 
 // Wifi
@@ -15,16 +17,28 @@ unsigned long mqttLastReconnectAttempt = 0;
 
 WiFiClient espClient;
 PubSubClient client(espClient);
-unsigned long lastMsg = 0;
-char msg[MQTT_BUFFER_SIZE];
+
+// One Wire
+OneWire oneWire(ONE_WIRE_PIN);
+DallasTemperature sensors(&oneWire);
 
 // Wind speed
 byte windSpeedCnt = 0;
+float windSpeedAvg1M = 0.0;
+float windSpeedAvg10M = 0.0;
+float windSpeedAvg1H = 0.0;
 unsigned long lastWindSpeedTime = 0;
+float windSpeedPerPulse = 2.4 * 1000 / 3600; // 2.4 km/h per pulse converted to m/s
 
 // Rain gauge
 long rainCnt = 0;
-const float rainPerTipping = 0.2794;
+byte rainPerMinute[60];
+int rainPerHour[24];
+long rain10M = 0;
+long rain1H = 0;
+long rainToday = 0;
+long rainYesterday = 0;
+const float rainPerPulse = 0.2794; // 0.2794 mm per pulse
 unsigned long lastRainTime = 0;
 
 // Time
@@ -47,6 +61,7 @@ struct WindDir
 };
 
 int windDirectionIdx = 0;
+float windDirectionAvg = 0;
 
 WindDir windDirections[17] = {
 	{"N/A", -1.0, 0, 0},
@@ -59,13 +74,13 @@ WindDir windDirections[17] = {
 	{"S", 180.0, 273, 301},
 	{"NNE", 22.5, 385, 426},
 	{"NE", 45.0, 438, 484},
-	{"SWW", 247.5, 569, 629},
-	{"SW", 225.0, 598, 661},
+	{"SWW", 247.5, 569, 614}, // Overlapping, changed 629 to 614
+	{"SW", 225.0, 614, 661},  // Overlapping, changed 598 to 614
 	{"NWN", 337.5, 667, 737},
-	{"N", 0.0, 746, 824},
-	{"WNW", 292.5, 785, 868},
-	{"NW", 315.0, 842, 931},
-	{"W", 270.0, 897, 992},
+	{"N", 0.0, 746, 804},	  // Overlapping, changed 824 to 804
+	{"WNW", 292.5, 804, 855}, // Overlapping, changed 785 to 804 and 868 to 855
+	{"NW", 315.0, 855, 914},  // Overlapping, changed 842 to 855 and 931 to 914
+	{"W", 270.0, 914, 992},	  // Overlapping, changed 897 to 914
 };
 
 void ICACHE_RAM_ATTR windSpeedIsr()
@@ -76,6 +91,9 @@ void ICACHE_RAM_ATTR windSpeedIsr()
 	{
 		windSpeedCnt += 1;
 		lastWindSpeedTime = now;
+
+		Serial.print("Wind speed pulse: ");
+		Serial.println(windSpeedCnt);
 	}
 }
 
@@ -87,6 +105,9 @@ void ICACHE_RAM_ATTR rainIsr()
 	{
 		rainCnt += 1;
 		lastRainTime = now;
+
+		Serial.print("Rain pulse: ");
+		Serial.println(rainCnt);
 	}
 }
 
@@ -97,12 +118,12 @@ void setup()
 	setupWifi();
 	setupMqtt();
 
-	pinMode(LED_BUILTIN, OUTPUT);
-	pinMode(D5, INPUT_PULLUP);
-	pinMode(D6, INPUT_PULLUP);
+	pinMode(BUILTIN_LED, OUTPUT);
+	pinMode(WIND_SPEED_PIN, INPUT_PULLUP);
+	pinMode(RAIN_PIN, INPUT_PULLUP);
 
-	attachInterrupt(D5, windSpeedIsr, FALLING);
-	attachInterrupt(D6, rainIsr, FALLING);
+	attachInterrupt(WIND_SPEED_PIN, windSpeedIsr, FALLING);
+	attachInterrupt(RAIN_PIN, rainIsr, FALLING);
 }
 
 void setupWifi()
@@ -140,6 +161,7 @@ void loop()
 	everySecond(newSecond);
 	everyTenSeconds(newSecond);
 	everyMinute(newSecond);
+	everyDay(newSecond);
 
 	mqttLoop();
 }
@@ -199,6 +221,12 @@ void everySecond(bool newSecond)
 
 	// Wind direction
 	windDirection();
+
+	// Wind speed
+	windSpeed();
+
+	// Rain
+	rain();
 }
 
 void everyTenSeconds(bool newSecond)
@@ -211,24 +239,30 @@ void everyTenSeconds(bool newSecond)
 
 	Serial.println("Every ten seconds event");
 
-	StaticJsonDocument<200> doc;
-	JsonObject jsonTime = doc.createNestedObject("time");
-	jsonTime["day"] = day;
-	jsonTime["hour"] = hour;
-	jsonTime["minute"] = minute;
-	jsonTime["second"] = second;
+	// Publish wind direction to MQTT
+	StaticJsonDocument<200> jsonDoc;
+	jsonDoc["name"] = windDirections[windDirectionIdx].name;
+	jsonDoc["degree"] = windDirections[windDirectionIdx].degree;
+	jsonDoc["degreeAvg1M"] = windDirectionAvg;
+	mqttPublish("weather/wind/direction", jsonDoc, true);
+	jsonDoc.clear();
 
-	JsonObject jsonWindDir = doc.createNestedObject("windDirection");
-	jsonWindDir["name"] = windDirections[windDirectionIdx].name;
-	jsonWindDir["degree"] = windDirections[windDirectionIdx].degree;
+	// Publish wind speed to MQTT
+	jsonDoc["avg1M"] = windSpeedAvg1M * windSpeedPerPulse;
+	jsonDoc["avg10M"] = windSpeedAvg10M * windSpeedPerPulse;
+	jsonDoc["avg1H"] = windSpeedAvg1H * windSpeedPerPulse;
+	mqttPublish("weather/wind/speed", jsonDoc, true);
+}
 
-	serializeJson(doc, msg);
+void mqttPublish(char *topic, StaticJsonDocument<200> jsonDocument, bool retained)
+{
+	char payload[MQTT_BUFFER_SIZE];
+	serializeJson(jsonDocument, payload);
 
 	// Publish to MQTT
-	// snprintf(msg, MQTT_BUFFER_SIZE, "hello world #%ld", second);
-	Serial.print("Publish message: ");
-	Serial.println(msg);
-	client.publish("weather/everyTenSeconds", msg);
+	Serial.print("MQTT - Publish message: ");
+	Serial.println(payload);
+	client.publish(topic, payload, retained);
 }
 
 void everyMinute(bool newSecond)
@@ -240,6 +274,35 @@ void everyMinute(bool newSecond)
 		return;
 
 	Serial.println("Every minute event");
+
+	// Temperature
+	temperature();
+
+	// Sum rain for time period
+	sumRainForTimePeriod();
+
+	// Publish rain to MQTT
+	StaticJsonDocument<200> jsonDoc;
+	jsonDoc["last10M"] = rain10M * rainPerPulse;
+	jsonDoc["last1H"] = rain1H * rainPerPulse;
+	jsonDoc["today"] = rainToday * rainPerPulse;
+	jsonDoc["yesterday"] = rainYesterday * rainPerPulse;
+	mqttPublish("weather/rain", jsonDoc, true);
+}
+
+void everyDay(bool newSecond)
+{
+	if (!newSecond)
+		return;
+
+	if (hour > 0 || minute > 0 || second > 0)
+		return;
+
+	Serial.println("Every day event");
+
+	// Sum rain for time period
+	rainYesterday = rainToday;
+	rainToday = 0;
 }
 
 bool generateTime()
@@ -280,14 +343,51 @@ bool generateTime()
 
 void temperature()
 {
+	// Send the command to get temperatures
+	sensors.requestTemperatures();
+
+	// Publish temperature to MQTT
+	StaticJsonDocument<200> jsonDoc;
+	jsonDoc["value"] = sensors.getTempCByIndex(0);
+	mqttPublish("weather/temp", jsonDoc, true);
 }
 
 void rain()
 {
+	rainPerMinute[minute] += rainCnt;
+	rainPerHour[hour] += rainCnt;
+	rainToday += rainCnt;
+	rainCnt = 0;
+}
+
+void sumRainForTimePeriod()
+{
+	int timePeriod = minute;
+	rain10M = 0;
+	rain1H = 0;
+
+	for (int i = 0; i <= 59; i += 1)
+	{
+		timePeriod -= 1;
+
+		if (timePeriod < 0)
+			timePeriod = 59;
+
+		if (i < 10)
+		{
+			rain10M += rainPerMinute[timePeriod];
+		}
+
+		rain1H += rainPerMinute[timePeriod];
+	}
 }
 
 void windSpeed()
 {
+	windSpeedAvg1M = calcAverage(windSpeedAvg1M, windSpeedCnt, 60);
+	windSpeedAvg10M = calcAverage(windSpeedAvg10M, windSpeedCnt, 600);
+	windSpeedAvg1H = calcAverage(windSpeedAvg1H, windSpeedCnt, 600);
+	windSpeedCnt = 0;
 }
 
 void windDirection()
@@ -301,11 +401,13 @@ void windDirection()
 		if (rawValue >= windDirections[i].valueMin && rawValue <= windDirections[i].valueMax)
 		{
 			windDirectionIdx = i;
+			windDirectionAvg = calcAverage(windDirectionAvg, windDirections[i].degree, 60);
 			break;
 		}
 	}
 
 	// Print warning if non was found
+	/*
 	if (windDirectionIdx <= 0)
 	{
 		Serial.print("Warning! Wind direction not found! ");
@@ -313,9 +415,10 @@ void windDirection()
 		Serial.print(rawValue);
 		Serial.println(")");
 	}
+	*/
 }
 
-int calcAverage(int lastAvg, int newValue, int samples)
+float calcAverage(float lastAvg, float newValue, int samples)
 {
 	return (((lastAvg * (samples - 1)) + newValue) / samples);
 }
