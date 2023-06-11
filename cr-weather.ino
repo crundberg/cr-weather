@@ -3,6 +3,9 @@
 #include <ArduinoJson.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
+#include <WiFiUdp.h>
+#include <ArduinoOTA.h>
+#include "time.h"
 #include "config.h"
 
 // Wifi
@@ -21,6 +24,10 @@ PubSubClient client(espClient);
 // One Wire
 OneWire oneWire(ONE_WIRE_PIN);
 DallasTemperature sensors(&oneWire);
+
+// Time
+const long gmtOffsetInSeconds = 3600;
+const int daylightOffsetInSeconds = 3600;
 
 // Wind speed
 byte windSpeedCnt = 0;
@@ -43,10 +50,13 @@ unsigned long lastRainTime = 0;
 
 // Time
 unsigned long lastTime = 0;
-byte second = 0;
-byte minute = 0;
-byte hour = 0;
-byte day = 0;
+int second = 0;
+int minute = 0;
+int hour = 0;
+int day = 0;
+time_t rawTime;
+struct tm *timeInfo;
+int lastSecond = 0;
 
 // Led
 bool toggleLed = false;
@@ -65,29 +75,29 @@ float windDirectionAvg = 0;
 
 WindDir windDirections[17] = {
 	{"N/A", -1.0, 0, 0},
-	{"ESE", 112.5, 63, 69},
-	{"NEE", 67.5, 80, 88},
-	{"E", 90.0, 88, 98},
-	{"SES", 157.5, 120, 133},
-	{"SE", 135.0, 175, 194},
-	{"SSW", 202.5, 232, 257},
-	{"S", 180.0, 273, 301},
-	{"NNE", 22.5, 385, 426},
-	{"NE", 45.0, 438, 484},
-	{"SWW", 247.5, 569, 614}, // Overlapping, changed 629 to 614
-	{"SW", 225.0, 614, 661},  // Overlapping, changed 598 to 614
-	{"NWN", 337.5, 667, 737},
-	{"N", 0.0, 746, 804},	  // Overlapping, changed 824 to 804
-	{"WNW", 292.5, 804, 855}, // Overlapping, changed 785 to 804 and 868 to 855
-	{"NW", 315.0, 855, 914},  // Overlapping, changed 842 to 855 and 931 to 914
-	{"W", 270.0, 914, 992},	  // Overlapping, changed 897 to 914
+	{"N", 0.0, 791, 853},
+	{"NNE", 22.5, 423, 467},
+	{"NE", 45.0, 476, 526},
+	{"ENE", 67.5, 91, 100},
+	{"E", 90.0, 100, 111},
+	{"ESE", 112.5, 73, 81},
+	{"SE", 135.0, 197, 217},
+	{"SSE", 157.5, 137, 151},
+	{"S", 180.0, 300, 332},
+	{"SSW", 202.5, 257, 284},
+	{"SW", 225.0, 657, 708},
+	{"WSW", 247.5, 610, 657},
+	{"W", 270.0, 965, 1048},
+	{"WNW", 292.5, 854, 904},
+	{"NW", 315.0, 904, 965},
+	{"NNW", 337.5, 712, 787},
 };
 
 void ICACHE_RAM_ATTR windSpeedIsr()
 {
 	unsigned long now = millis();
 
-	if (now - lastWindSpeedTime > 250)
+	if (now - lastWindSpeedTime > 50)
 	{
 		windSpeedCnt += 1;
 		lastWindSpeedTime = now;
@@ -101,7 +111,7 @@ void ICACHE_RAM_ATTR rainIsr()
 {
 	unsigned long now = millis();
 
-	if (now - lastRainTime > 250)
+	if (now - lastRainTime > 50)
 	{
 		rainCnt += 1;
 		lastRainTime = now;
@@ -113,10 +123,12 @@ void ICACHE_RAM_ATTR rainIsr()
 
 void setup()
 {
-	Serial.begin(9600);
+	Serial.begin(115200);
 
 	setupWifi();
 	setupMqtt();
+	setupOTA();
+	setupTime();
 
 	pinMode(BUILTIN_LED, OUTPUT);
 	pinMode(WIND_SPEED_PIN, INPUT_PULLUP);
@@ -151,13 +163,94 @@ void setupWifi()
 void setupMqtt()
 {
 	client.setServer(mqttServer, 1883);
-	// client.setCallback(callback);
+}
+
+void setupOTA()
+{
+	// OTA
+	ArduinoOTA.setPort(8266);
+	ArduinoOTA.setHostname("CR-Weather");
+
+	ArduinoOTA.onStart([]()
+					   {  
+		String type;  
+		if (ArduinoOTA.getCommand() == U_FLASH) {  
+			type = "sketch";  
+		} else { // U_SPIFFS  
+			type = "filesystem";  
+		}
+   
+		// NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()  
+		Serial.println("Start updating " + type); });
+
+	ArduinoOTA.onEnd([]()
+					 { Serial.println("\nEnd"); });
+	ArduinoOTA.onProgress([](unsigned int progress, unsigned int total)
+						  { Serial.printf("Progress: %u%%\r", (progress / (total / 100))); });
+	ArduinoOTA.onError([](ota_error_t error)
+					   {  
+   Serial.printf("Error[%u]: ", error);  
+   if (error == OTA_AUTH_ERROR) {  
+    Serial.println("Auth Failed");  
+   } else if (error == OTA_BEGIN_ERROR) {  
+    Serial.println("Begin Failed");  
+   } else if (error == OTA_CONNECT_ERROR) {  
+    Serial.println("Connect Failed");  
+   } else if (error == OTA_RECEIVE_ERROR) {  
+    Serial.println("Receive Failed");  
+   } else if (error == OTA_END_ERROR) {  
+    Serial.println("End Failed");  
+   } });
+
+	ArduinoOTA.begin();
+}
+
+void setupTime()
+{
+	Serial.println("Setting up time");
+
+	// Init and get the time
+	configTime(gmtOffsetInSeconds, daylightOffsetInSeconds, "pool.ntp.org");
+	bool newSecond;
+	int year = 0;
+
+	while (year < 2023)
+	{
+		delay(1000);
+		Serial.print(".");
+
+		newSecond = updateTime();
+		year = 1900 + timeInfo->tm_year;
+	}
+
+	Serial.println("");
+	Serial.println("Time setup");
+}
+
+bool updateTime()
+{
+	time(&rawTime);
+	timeInfo = localtime(&rawTime);
+
+	day = timeInfo->tm_mday;
+	hour = timeInfo->tm_hour;
+	minute = timeInfo->tm_min;
+	second = timeInfo->tm_sec;
+
+	if (second != lastSecond)
+	{
+		lastSecond = second;
+		return true;
+	}
+
+	return false;
 }
 
 void loop()
 {
-	bool newSecond = generateTime();
+	ArduinoOTA.handle();
 
+	bool newSecond = updateTime();
 	everySecond(newSecond);
 	everyTenSeconds(newSecond);
 	everyMinute(newSecond);
@@ -173,10 +266,6 @@ boolean mqttConnect()
 	if (client.connect("ArduinoWeather", mqttUser, mqttPassword))
 	{
 		Serial.println("Connected to MQTT!");
-		// Once connected, publish an announcement...
-		// client.publish("outTopic", "hello world");
-		// ... and resubscribe
-		// client.subscribe("inTopic");
 	}
 	else
 	{
@@ -305,42 +394,6 @@ void everyDay(bool newSecond)
 	rainToday = 0;
 }
 
-bool generateTime()
-{
-	unsigned long currentTime = millis();
-
-	unsigned long timeDelta = currentTime - lastTime;
-	bool newSecond = timeDelta > 1000;
-
-	if (newSecond)
-	{
-		second += 1;
-
-		if (second >= 60)
-		{
-			second = 0;
-			minute += 1;
-		}
-
-		if (minute >= 60)
-		{
-			minute = 0;
-			hour += 1;
-		}
-
-		if (hour >= 24)
-		{
-			hour = 0;
-			day += 1;
-		}
-
-		// Round the latest time to the nearest second
-		lastTime = currentTime - (timeDelta - 1000);
-	}
-
-	return newSecond;
-}
-
 void temperature()
 {
 	// Send the command to get temperatures
@@ -394,6 +447,7 @@ void windDirection()
 {
 	// Wemos D1 mini has 10 bits precision, 0-1023
 	int rawValue = analogRead(WIND_DIRECTION_PIN);
+	windDirectionIdx = 0;
 
 	// Loop through all direction to find current direction
 	for (int i = 1; i <= 16; i += 1)
@@ -407,7 +461,6 @@ void windDirection()
 	}
 
 	// Print warning if non was found
-	/*
 	if (windDirectionIdx <= 0)
 	{
 		Serial.print("Warning! Wind direction not found! ");
@@ -415,7 +468,6 @@ void windDirection()
 		Serial.print(rawValue);
 		Serial.println(")");
 	}
-	*/
 }
 
 float calcAverage(float lastAvg, float newValue, int samples)

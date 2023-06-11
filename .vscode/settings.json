@@ -10,6 +10,9 @@
 		"utility": "cpp",
 		"typeinfo": "cpp",
 		"istream": "cpp",
-		"cstddef": "cpp"
+		"cstddef": "cpp",
+		"random": "cpp",
+		"limits": "cpp",
+		"ranges": "cpp"
 	}
 }
