@@ -3,13 +3,12 @@
     "configurations": [
         {
             "name": "Arduino",
-            "compilerPath": "/Users/Christoffer/Library/Arduino15/packages/esp8266/tools/xtensa-lx106-elf-gcc/3.0.4-gcc10.3-1757bed/bin/xtensa-lx106-elf-g++",
+            "compilerPath": "/Users/Christoffer/Library/Arduino15/packages/esp8266/tools/xtensa-lx106-elf-gcc/3.1.0-gcc10.3-e5f9fec/bin/xtensa-lx106-elf-g++",
             "compilerArgs": [
                 "-U__STRICT_ANSI__",
-                "-w",
-                "-Werror=return-type",
                 "-free",
                 "-fipa-pta",
+                "-Werror=return-type",
                 "-mlongcalls",
                 "-mtext-section-literals",
                 "-fno-rtti",
@@ -18,27 +17,28 @@
             ],
             "intelliSenseMode": "gcc-x64",
             "includePath": [
-                "/Users/Christoffer/Library/Arduino15/packages/esp8266/hardware/esp8266/3.0.2/tools/sdk/include",
-                "/Users/Christoffer/Library/Arduino15/packages/esp8266/hardware/esp8266/3.0.2/tools/sdk/lwip2/include",
+                "/Users/Christoffer/Library/Arduino15/packages/esp8266/hardware/esp8266/3.1.2/tools/sdk/include",
+                "/Users/Christoffer/Library/Arduino15/packages/esp8266/hardware/esp8266/3.1.2/tools/sdk/lwip2/include",
                 "/Users/Christoffer/Documents/Git/cr-weather/build/core",
-                "/Users/Christoffer/Library/Arduino15/packages/esp8266/hardware/esp8266/3.0.2/cores/esp8266",
-                "/Users/Christoffer/Library/Arduino15/packages/esp8266/hardware/esp8266/3.0.2/variants/d1_mini",
-                "/Users/Christoffer/Library/Arduino15/packages/esp8266/hardware/esp8266/3.0.2/libraries/ESP8266WiFi/src",
+                "/Users/Christoffer/Library/Arduino15/packages/esp8266/hardware/esp8266/3.1.2/cores/esp8266",
+                "/Users/Christoffer/Library/Arduino15/packages/esp8266/hardware/esp8266/3.1.2/variants/d1_mini",
+                "/Users/Christoffer/Library/Arduino15/packages/esp8266/hardware/esp8266/3.1.2/libraries/ESP8266WiFi/src",
                 "/Users/Christoffer/Documents/Arduino/libraries/PubSubClient/src",
                 "/Users/Christoffer/Documents/Arduino/libraries/ArduinoJson/src",
                 "/Users/Christoffer/Documents/Arduino/libraries/OneWire",
                 "/Users/Christoffer/Documents/Arduino/libraries/DallasTemperature",
-                "/Users/Christoffer/Library/Arduino15/packages/esp8266/hardware/esp8266/3.0.2/libraries/ArduinoOTA",
-                "/Users/Christoffer/Library/Arduino15/packages/esp8266/hardware/esp8266/3.0.2/libraries/ESP8266mDNS/src",
-                "/Users/Christoffer/Library/Arduino15/packages/esp8266/tools/xtensa-lx106-elf-gcc/3.0.4-gcc10.3-1757bed/xtensa-lx106-elf/include/c++/10.3.0",
-                "/Users/Christoffer/Library/Arduino15/packages/esp8266/tools/xtensa-lx106-elf-gcc/3.0.4-gcc10.3-1757bed/xtensa-lx106-elf/include/c++/10.3.0/xtensa-lx106-elf",
-                "/Users/Christoffer/Library/Arduino15/packages/esp8266/tools/xtensa-lx106-elf-gcc/3.0.4-gcc10.3-1757bed/xtensa-lx106-elf/include/c++/10.3.0/backward",
-                "/Users/Christoffer/Library/Arduino15/packages/esp8266/tools/xtensa-lx106-elf-gcc/3.0.4-gcc10.3-1757bed/lib/gcc/xtensa-lx106-elf/10.3.0/include",
-                "/Users/Christoffer/Library/Arduino15/packages/esp8266/tools/xtensa-lx106-elf-gcc/3.0.4-gcc10.3-1757bed/lib/gcc/xtensa-lx106-elf/10.3.0/include-fixed",
-                "/Users/Christoffer/Library/Arduino15/packages/esp8266/tools/xtensa-lx106-elf-gcc/3.0.4-gcc10.3-1757bed/xtensa-lx106-elf/include"
+                "/Users/Christoffer/Library/Arduino15/packages/esp8266/hardware/esp8266/3.1.2/libraries/ArduinoOTA",
+                "/Users/Christoffer/Library/Arduino15/packages/esp8266/hardware/esp8266/3.1.2/libraries/Wire",
+                "/Users/Christoffer/Library/Arduino15/packages/esp8266/hardware/esp8266/3.1.2/libraries/ESP8266mDNS/src",
+                "/Users/Christoffer/Library/Arduino15/packages/esp8266/tools/xtensa-lx106-elf-gcc/3.1.0-gcc10.3-e5f9fec/xtensa-lx106-elf/include/c++/10.3.0",
+                "/Users/Christoffer/Library/Arduino15/packages/esp8266/tools/xtensa-lx106-elf-gcc/3.1.0-gcc10.3-e5f9fec/xtensa-lx106-elf/include/c++/10.3.0/xtensa-lx106-elf",
+                "/Users/Christoffer/Library/Arduino15/packages/esp8266/tools/xtensa-lx106-elf-gcc/3.1.0-gcc10.3-e5f9fec/xtensa-lx106-elf/include/c++/10.3.0/backward",
+                "/Users/Christoffer/Library/Arduino15/packages/esp8266/tools/xtensa-lx106-elf-gcc/3.1.0-gcc10.3-e5f9fec/lib/gcc/xtensa-lx106-elf/10.3.0/include",
+                "/Users/Christoffer/Library/Arduino15/packages/esp8266/tools/xtensa-lx106-elf-gcc/3.1.0-gcc10.3-e5f9fec/lib/gcc/xtensa-lx106-elf/10.3.0/include-fixed",
+                "/Users/Christoffer/Library/Arduino15/packages/esp8266/tools/xtensa-lx106-elf-gcc/3.1.0-gcc10.3-e5f9fec/xtensa-lx106-elf/include"
             ],
             "forcedInclude": [
-                "/Users/Christoffer/Library/Arduino15/packages/esp8266/hardware/esp8266/3.0.2/cores/esp8266/Arduino.h"
+                "/Users/Christoffer/Library/Arduino15/packages/esp8266/hardware/esp8266/3.1.2/cores/esp8266/Arduino.h"
             ],
             "cStandard": "c11",
             "cppStandard": "c++17",
@@ -46,6 +46,7 @@
                 "__ets__",
                 "ICACHE_FLASH",
                 "_GNU_SOURCE",
+                "ESP8266",
                 "MMU_IRAM_SIZE=0x8000",
                 "MMU_ICACHE_SIZE=0x8000",
                 "NONOSDK22x_190703=1",
@@ -58,8 +59,8 @@
                 "ARDUINO_ESP8266_WEMOS_D1MINI",
                 "ARDUINO_ARCH_ESP8266",
                 "ARDUINO_BOARD=\"ESP8266_WEMOS_D1MINI\"",
+                "ARDUINO_BOARD_ID=\"d1_mini\"",
                 "FLASHMODE_DIO",
-                "ESP8266",
                 "__DBL_MIN_EXP__=(-1021)",
                 "__cpp_attributes=200809L",
                 "__UINT_LEAST16_MAX__=0xffff",
@@ -364,8 +365,7 @@
                 "__ATOMIC_ACQ_REL=4",
                 "__ATOMIC_RELEASE=3",
                 "USBCON"
-            ],
-            "compileCommands": "${workspaceFolder}/build/compile_commands.json"
+            ]
         }
     ]
 }

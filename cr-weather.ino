@@ -30,15 +30,19 @@ const long gmtOffsetInSeconds = 3600;
 const int daylightOffsetInSeconds = 3600;
 
 // Wind speed
-byte windSpeedCnt = 0;
+volatile byte windSpeedCnt = 0;
+volatile unsigned long lastWindSpeedTime = 0;
+byte windSpeedCntLastSec = 0;
+byte windGust = 0;
 float windSpeedAvg1M = 0.0;
 float windSpeedAvg10M = 0.0;
 float windSpeedAvg1H = 0.0;
-unsigned long lastWindSpeedTime = 0;
+byte highestGustPerMinute[60];
 float windSpeedPerPulse = 2.4 * 1000 / 3600; // 2.4 km/h per pulse converted to m/s
 
 // Rain gauge
-long rainCnt = 0;
+volatile long rainCnt = 0;
+volatile unsigned long lastRainTime = 0;
 byte rainPerMinute[60];
 int rainPerHour[24];
 long rain10M = 0;
@@ -46,7 +50,6 @@ long rain1H = 0;
 long rainToday = 0;
 long rainYesterday = 0;
 const float rainPerPulse = 0.2794; // 0.2794 mm per pulse
-unsigned long lastRainTime = 0;
 
 // Time
 unsigned long lastTime = 0;
@@ -72,6 +75,7 @@ struct WindDir
 
 int windDirectionIdx = 0;
 float windDirectionAvg = 0;
+int windDirectionOffset = 6;
 
 WindDir windDirections[17] = {
 	{"N/A", -1.0, 0, 0},
@@ -97,7 +101,7 @@ void ICACHE_RAM_ATTR windSpeedIsr()
 {
 	unsigned long now = millis();
 
-	if (now - lastWindSpeedTime > 50)
+	if (now - lastWindSpeedTime > 15)
 	{
 		windSpeedCnt += 1;
 		lastWindSpeedTime = now;
@@ -111,7 +115,7 @@ void ICACHE_RAM_ATTR rainIsr()
 {
 	unsigned long now = millis();
 
-	if (now - lastRainTime > 50)
+	if (now - lastRainTime > 15)
 	{
 		rainCnt += 1;
 		lastRainTime = now;
@@ -168,7 +172,6 @@ void setupMqtt()
 void setupOTA()
 {
 	// OTA
-	ArduinoOTA.setPort(8266);
 	ArduinoOTA.setHostname("CR-Weather");
 
 	ArduinoOTA.onStart([]()
@@ -318,6 +321,17 @@ void everySecond(bool newSecond)
 	rain();
 }
 
+void mqttPublish(char *topic, StaticJsonDocument<200> jsonDocument, bool retained)
+{
+	char payload[MQTT_BUFFER_SIZE];
+	serializeJson(jsonDocument, payload);
+
+	// Publish to MQTT
+	Serial.print("MQTT - Publish message: ");
+	Serial.println(payload);
+	client.publish(topic, payload, retained);
+}
+
 void everyTenSeconds(bool newSecond)
 {
 	if (!newSecond)
@@ -334,24 +348,6 @@ void everyTenSeconds(bool newSecond)
 	jsonDoc["degree"] = windDirections[windDirectionIdx].degree;
 	jsonDoc["degreeAvg1M"] = windDirectionAvg;
 	mqttPublish("weather/wind/direction", jsonDoc, true);
-	jsonDoc.clear();
-
-	// Publish wind speed to MQTT
-	jsonDoc["avg1M"] = windSpeedAvg1M * windSpeedPerPulse;
-	jsonDoc["avg10M"] = windSpeedAvg10M * windSpeedPerPulse;
-	jsonDoc["avg1H"] = windSpeedAvg1H * windSpeedPerPulse;
-	mqttPublish("weather/wind/speed", jsonDoc, true);
-}
-
-void mqttPublish(char *topic, StaticJsonDocument<200> jsonDocument, bool retained)
-{
-	char payload[MQTT_BUFFER_SIZE];
-	serializeJson(jsonDocument, payload);
-
-	// Publish to MQTT
-	Serial.print("MQTT - Publish message: ");
-	Serial.println(payload);
-	client.publish(topic, payload, retained);
 }
 
 void everyMinute(bool newSecond)
@@ -370,6 +366,18 @@ void everyMinute(bool newSecond)
 	// Sum rain for time period
 	sumRainForTimePeriod();
 
+	// Calculate wind gust
+	highestGustPerMinute[minute] = 0;
+	windGust = 0;
+
+	for (byte min = 0; min < 60; min += 1)
+	{
+		if (highestGustPerMinute[min] > windGust)
+		{
+			windGust = highestGustPerMinute[min];
+		}
+	}
+
 	// Publish rain to MQTT
 	StaticJsonDocument<200> jsonDoc;
 	jsonDoc["last10M"] = rain10M * rainPerPulse;
@@ -377,6 +385,14 @@ void everyMinute(bool newSecond)
 	jsonDoc["today"] = rainToday * rainPerPulse;
 	jsonDoc["yesterday"] = rainYesterday * rainPerPulse;
 	mqttPublish("weather/rain", jsonDoc, true);
+	jsonDoc.clear();
+
+	// Publish wind speed to MQTT
+	jsonDoc["avg1M"] = windSpeedAvg1M * windSpeedPerPulse;
+	jsonDoc["avg10M"] = windSpeedAvg10M * windSpeedPerPulse;
+	jsonDoc["avg1H"] = windSpeedAvg1H * windSpeedPerPulse;
+	jsonDoc["gust"] = windGust * windSpeedPerPulse;
+	mqttPublish("weather/wind/speed", jsonDoc, true);
 }
 
 void everyDay(bool newSecond)
@@ -440,6 +456,14 @@ void windSpeed()
 	windSpeedAvg1M = calcAverage(windSpeedAvg1M, windSpeedCnt, 60);
 	windSpeedAvg10M = calcAverage(windSpeedAvg10M, windSpeedCnt, 600);
 	windSpeedAvg1H = calcAverage(windSpeedAvg1H, windSpeedCnt, 600);
+
+	byte windSpeedLast2S = windSpeedCntLastSec + windSpeedCnt;
+	if (windSpeedLast2S > highestGustPerMinute[minute])
+	{
+		highestGustPerMinute[minute] = windSpeedLast2S;
+	}
+
+	windSpeedCntLastSec = windSpeedCnt;
 	windSpeedCnt = 0;
 }
 
@@ -454,7 +478,13 @@ void windDirection()
 	{
 		if (rawValue >= windDirections[i].valueMin && rawValue <= windDirections[i].valueMax)
 		{
-			windDirectionIdx = i;
+			windDirectionIdx = i + windDirectionOffset;
+
+			if (windDirectionIdx > 16)
+				windDirectionIdx -= 16;
+			if (windDirectionIdx < 1)
+				windDirectionIdx += 16;
+
 			windDirectionAvg = calcAverage(windDirectionAvg, windDirections[i].degree, 60);
 			break;
 		}
