@@ -16,6 +16,10 @@ const char *password = WIFI_PASSWORD;
 IPAddress mqttServer(192, 168, 50, 200);
 const char *mqttUser = MQTT_USER;
 const char *mqttPassword = MQTT_PASSWORD;
+const char *mqttRainTopic = "weather/rain";
+const char *mqttWindSpeedTopic = "weather/wind/speed";
+const char *mqttWindDirTopic = "weather/wind/direction";
+const char *mqttTempTopic = "weather/temp";
 unsigned long mqttLastReconnectAttempt = 0;
 
 WiFiClient espClient;
@@ -32,23 +36,24 @@ const int daylightOffsetInSeconds = 3600;
 // Wind speed
 volatile byte windSpeedCnt = 0;
 volatile unsigned long lastWindSpeedTime = 0;
+int windSpeedPerMinute[60];
 byte windSpeedCntLastSec = 0;
 byte windGust = 0;
-float windSpeedAvg1M = 0.0;
-float windSpeedAvg10M = 0.0;
-float windSpeedAvg1H = 0.0;
+unsigned long windSpeed1M = 0;
+unsigned long windSpeed10M = 0;
+unsigned long windSpeed1H = 0;
 byte highestGustPerMinute[60];
-float windSpeedPerPulse = 2.4 * 1000 / 3600; // 2.4 km/h per pulse converted to m/s
+const float windSpeedPerPulse = 2.4 * 1000 / 3600; // 2.4 km/h per pulse converted to m/s
 
 // Rain gauge
-volatile long rainCnt = 0;
+volatile byte rainCnt = 0;
 volatile unsigned long lastRainTime = 0;
 byte rainPerMinute[60];
 int rainPerHour[24];
-long rain10M = 0;
-long rain1H = 0;
-long rainToday = 0;
-long rainYesterday = 0;
+unsigned long rain10M = 0;
+unsigned long rain1H = 0;
+unsigned long rainToday = 0;
+unsigned long rainYesterday = 0;
 const float rainPerPulse = 0.2794; // 0.2794 mm per pulse
 
 // Time
@@ -138,8 +143,8 @@ void setup()
 	pinMode(WIND_SPEED_PIN, INPUT_PULLUP);
 	pinMode(RAIN_PIN, INPUT_PULLUP);
 
-	attachInterrupt(WIND_SPEED_PIN, windSpeedIsr, FALLING);
-	attachInterrupt(RAIN_PIN, rainIsr, FALLING);
+	attachInterrupt(digitalPinToInterrupt(WIND_SPEED_PIN), windSpeedIsr, FALLING);
+	attachInterrupt(digitalPinToInterrupt(RAIN_PIN), rainIsr, FALLING);
 }
 
 void setupWifi()
@@ -257,6 +262,7 @@ void loop()
 	everySecond(newSecond);
 	everyTenSeconds(newSecond);
 	everyMinute(newSecond);
+	everyHour(newSecond);
 	everyDay(newSecond);
 
 	mqttLoop();
@@ -283,7 +289,7 @@ void mqttLoop()
 {
 	if (!client.connected())
 	{
-		long now = millis();
+		unsigned long now = millis();
 
 		if (now - mqttLastReconnectAttempt > 5000)
 		{
@@ -321,7 +327,7 @@ void everySecond(bool newSecond)
 	rain();
 }
 
-void mqttPublish(char *topic, StaticJsonDocument<200> jsonDocument, bool retained)
+void mqttPublish(const char *topic, StaticJsonDocument<200> jsonDocument, bool retained)
 {
 	char payload[MQTT_BUFFER_SIZE];
 	serializeJson(jsonDocument, payload);
@@ -347,7 +353,7 @@ void everyTenSeconds(bool newSecond)
 	jsonDoc["name"] = windDirections[windDirectionIdx].name;
 	jsonDoc["degree"] = windDirections[windDirectionIdx].degree;
 	jsonDoc["degreeAvg1M"] = windDirectionAvg;
-	mqttPublish("weather/wind/direction", jsonDoc, true);
+	mqttPublish(mqttWindDirTopic, jsonDoc, true);
 }
 
 void everyMinute(bool newSecond)
@@ -364,7 +370,12 @@ void everyMinute(bool newSecond)
 	temperature();
 
 	// Sum rain for time period
+	rainPerMinute[minute] = 0;
 	sumRainForTimePeriod();
+
+	// Sum wind speed for time period
+	windSpeedPerMinute[minute] = 0;
+	sumWindSpeedForTimePeriod();
 
 	// Calculate wind gust
 	highestGustPerMinute[minute] = 0;
@@ -384,15 +395,29 @@ void everyMinute(bool newSecond)
 	jsonDoc["last1H"] = rain1H * rainPerPulse;
 	jsonDoc["today"] = rainToday * rainPerPulse;
 	jsonDoc["yesterday"] = rainYesterday * rainPerPulse;
-	mqttPublish("weather/rain", jsonDoc, true);
+	mqttPublish(mqttRainTopic, jsonDoc, true);
 	jsonDoc.clear();
 
 	// Publish wind speed to MQTT
-	jsonDoc["avg1M"] = windSpeedAvg1M * windSpeedPerPulse;
-	jsonDoc["avg10M"] = windSpeedAvg10M * windSpeedPerPulse;
-	jsonDoc["avg1H"] = windSpeedAvg1H * windSpeedPerPulse;
+	jsonDoc["avg1M"] = windSpeed1M / 60 * windSpeedPerPulse;
+	jsonDoc["avg10M"] = windSpeed10M / 600 * windSpeedPerPulse;
+	jsonDoc["avg1H"] = windSpeed1H / 3600 * windSpeedPerPulse;
 	jsonDoc["gust"] = windGust * windSpeedPerPulse;
-	mqttPublish("weather/wind/speed", jsonDoc, true);
+	mqttPublish(mqttWindSpeedTopic, jsonDoc, true);
+}
+
+void everyHour(bool newSecond)
+{
+	if (!newSecond)
+		return;
+
+	if (minute > 0)
+		return;
+
+	if (second > 0)
+		return;
+
+	Serial.println("Every hour event");
 }
 
 void everyDay(bool newSecond)
@@ -418,7 +443,7 @@ void temperature()
 	// Publish temperature to MQTT
 	StaticJsonDocument<200> jsonDoc;
 	jsonDoc["value"] = sensors.getTempCByIndex(0);
-	mqttPublish("weather/temp", jsonDoc, true);
+	mqttPublish(mqttTempTopic, jsonDoc, true);
 }
 
 void rain()
@@ -453,9 +478,7 @@ void sumRainForTimePeriod()
 
 void windSpeed()
 {
-	windSpeedAvg1M = calcAverage(windSpeedAvg1M, windSpeedCnt, 60);
-	windSpeedAvg10M = calcAverage(windSpeedAvg10M, windSpeedCnt, 600);
-	windSpeedAvg1H = calcAverage(windSpeedAvg1H, windSpeedCnt, 600);
+	windSpeedPerMinute[minute] += windSpeedCnt;
 
 	byte windSpeedLast2S = windSpeedCntLastSec + windSpeedCnt;
 	if (windSpeedLast2S > highestGustPerMinute[minute])
@@ -465,6 +488,30 @@ void windSpeed()
 
 	windSpeedCntLastSec = windSpeedCnt;
 	windSpeedCnt = 0;
+}
+
+void sumWindSpeedForTimePeriod()
+{
+	int timePeriod = minute;
+	windSpeed1M = 0;
+	windSpeed10M = 0;
+	windSpeed1H = 0;
+
+	for (int i = 0; i <= 59; i += 1)
+	{
+		timePeriod -= 1;
+
+		if (timePeriod < 0)
+			timePeriod = 59;
+
+		if (i < 1)
+			windSpeed1M = windSpeedPerMinute[timePeriod];
+
+		if (i < 10)
+			windSpeed10M += windSpeedPerMinute[timePeriod];
+
+		windSpeed1H += windSpeedPerMinute[timePeriod];
+	}
 }
 
 void windDirection()
