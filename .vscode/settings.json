@@ -13,6 +13,8 @@
 		"cstddef": "cpp",
 		"random": "cpp",
 		"limits": "cpp",
-		"ranges": "cpp"
+		"ranges": "cpp",
+		"algorithm": "cpp",
+		"cmath": "cpp"
 	}
 }
