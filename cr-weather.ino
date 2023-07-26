@@ -5,6 +5,7 @@
 #include <DallasTemperature.h>
 #include <WiFiUdp.h>
 #include <ArduinoOTA.h>
+#include <Wire.h>
 #include "time.h"
 #include "config.h"
 #include "windSpeed.h"
@@ -23,6 +24,7 @@ const char *mqttRainTopic = "weather/rain";
 const char *mqttWindSpeedTopic = "weather/wind/speed";
 const char *mqttWindDirTopic = "weather/wind/direction";
 const char *mqttTempTopic = "weather/temp";
+const char *mqttLightTopic = "weather/light";
 const char *mqttUptimeTopic = "weather/uptime";
 unsigned long mqttLastReconnectAttempt = 0;
 
@@ -59,6 +61,7 @@ void setup()
 
 	setupWifi();
 	setupMqtt();
+	setupI2C();
 	// setupOTA();
 	setupTime();
 
@@ -102,6 +105,11 @@ void setupWifi()
 void setupMqtt()
 {
 	client.setServer(mqttServer, 1883);
+}
+
+void setupI2C()
+{
+	Wire.begin();
 }
 
 /*
@@ -197,6 +205,7 @@ void loop()
 	rain.loop(hour, minute);
 
 	everySecond(newSecond);
+	everyTenSecond(newSecond);
 	everyMinute(newSecond);
 
 	mqttLoop();
@@ -252,6 +261,17 @@ void everySecond(bool newSecond)
 	digitalWrite(LED_BUILTIN, toggleLed);
 }
 
+void everyTenSecond(bool newSecond)
+{
+	if (!newSecond)
+		return;
+
+	if (second % 10 > 0)
+		return;
+
+	Serial.println("Every ten seconds event");
+}
+
 void mqttPublish(const char *topic, StaticJsonDocument<200> jsonDocument, bool retained)
 {
 	char payload[MQTT_BUFFER_SIZE];
@@ -304,6 +324,12 @@ void everyMinute(bool newSecond)
 	jsonDoc["name10M"] = windDir10M.name;
 	jsonDoc["degree10M"] = windDir10M.degree;
 	mqttPublish(mqttWindDirTopic, jsonDoc, true);
+	jsonDoc.clear();
+
+	// Publish light
+	jsonDoc["value"] = 0;
+	jsonDoc["avg"] = 0;
+	mqttPublish(mqttLightTopic, jsonDoc, true);
 	jsonDoc.clear();
 
 	// Publish wind direction to MQTT
