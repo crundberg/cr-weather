@@ -24,7 +24,8 @@ private:
 	unsigned short _ticksPerMin[60];
 	unsigned int _ticksPerHour[24];
 
-	double _rainYesterday;
+	int _ticksToday;
+	int _ticksYesterday;
 
 	int _hour;
 	int _minute;

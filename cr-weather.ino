@@ -1,4 +1,4 @@
-#include <ESP8266WiFi.h>
+#include <WiFi.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include <OneWire.h>
@@ -45,9 +45,6 @@ time_t rawTime;
 struct tm *timeInfo;
 int lastSecond = 0;
 
-// Led
-bool toggleLed = false;
-
 // Weather meter
 WindSpeed windSpeed(WIND_SPEED_PIN);
 WindDir windDir(WIND_DIRECTION_PIN, WIND_DIRECTION_OFFSET);
@@ -65,7 +62,10 @@ void setup()
 	// setupOTA();
 	setupTime();
 
-	pinMode(BUILTIN_LED, OUTPUT);
+	pinMode(LED_RED, OUTPUT);
+	pinMode(LED_GREEN, OUTPUT);
+	pinMode(LED_BLUE, OUTPUT);
+
 	attachInterrupt(digitalPinToInterrupt(WIND_SPEED_PIN), windSpeedIsr, FALLING);
 	attachInterrupt(digitalPinToInterrupt(RAIN_PIN), rainIsr, FALLING);
 }
@@ -215,7 +215,7 @@ boolean mqttConnect()
 {
 	Serial.println("[MQTT] Connect");
 
-	if (client.connect("ArduinoWeather", mqttUser, mqttPassword))
+	if (client.connect("CRWeatherArduino", mqttUser, mqttPassword))
 	{
 		Serial.println("[MQTT] Connected");
 	}
@@ -237,11 +237,7 @@ void mqttLoop()
 		if (now - mqttLastReconnectAttempt > 5000)
 		{
 			mqttLastReconnectAttempt = now;
-
-			if (mqttConnect())
-			{
-				mqttLastReconnectAttempt = 0;
-			}
+			mqttConnect();
 		}
 	}
 	else
@@ -256,9 +252,8 @@ void everySecond(bool newSecond)
 	if (!newSecond)
 		return;
 
-	// Toggle blue led
-	toggleLed = !toggleLed;
-	digitalWrite(LED_BUILTIN, toggleLed);
+	// Toggle led
+	digitalWrite(LED_BLUE, second % 2 == 0); // Blue
 }
 
 void everyTenSecond(bool newSecond)
@@ -342,8 +337,19 @@ void temperature()
 	// Send the command to get temperatures
 	sensors.requestTemperatures();
 
-	// Round value from temperature sensor
+	// Get value from temperature sensor
 	float temp = sensors.getTempCByIndex(0);
+
+	// Validate value
+	if (temp < -55.0 || temp > 125.0)
+	{
+		Serial.print("[Temp] Failed to read temperature (value=");
+		Serial.print(temp);
+		Serial.println(")");
+		return;
+	}
+
+	// Round value
 	double value = roundValue(temp, 1);
 
 	// Publish temperature to MQTT

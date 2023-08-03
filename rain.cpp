@@ -35,7 +35,10 @@ void Rain::loop(int hour, int minute)
 
 	// Save yesterdays rain
 	if (hour == 0 && minute == 0)
-		_rainYesterday = getRainForLastHours(24);
+	{
+		_ticksYesterday = _ticksToday;
+		_ticksToday = 0;
+	}
 
 	// Reset ticks on new minute
 	if (minute != _minute)
@@ -51,6 +54,7 @@ void Rain::loop(int hour, int minute)
 	// Increase ticks for current minute and hour
 	_ticksPerMin[minute] += _ticks;
 	_ticksPerHour[hour] += _ticks;
+	_ticksToday += _ticks;
 
 	// Save data
 	_ticks = 0;
@@ -101,15 +105,15 @@ double Rain::getRainForLastHours(int timePeriodInHours)
 	// Loop through selected time period
 	for (int index = 0; index < timePeriodInHours; index += 1)
 	{
-		// Decrease time period with 1 minute
+		// Add ticks for hour to ticks for time period
+		ticksForTimePeriod += _ticksPerHour[timePeriod];
+
+		// Decrease time period with 1 hour
 		timePeriod -= 1;
 
-		// Adjust minute if less than 0
+		// Adjust hour if less than 0
 		if (timePeriod < 0)
 			timePeriod = 23;
-
-		// Add ticks for minute to ticks for time period
-		ticksForTimePeriod += _ticksPerHour[timePeriod];
 	}
 
 	// Convert ticks to rain during time period
@@ -118,12 +122,12 @@ double Rain::getRainForLastHours(int timePeriodInHours)
 
 double Rain::getRainForToday()
 {
-	return getRainForLastHours(_hour);
+	return roundValue(_ticksToday * RAIN_PER_TICK);
 }
 
 double Rain::getRainForYesterday()
 {
-	return roundValue(_rainYesterday);
+	return roundValue(_ticksYesterday * RAIN_PER_TICK);
 }
 
 double Rain::roundValue(float value)
