@@ -7,8 +7,6 @@
 
 Rain::Rain(int pin)
 {
-	pinMode(pin, INPUT_PULLUP);
-
 	_lastTick = 0;
 }
 

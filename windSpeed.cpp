@@ -7,8 +7,6 @@
 
 WindSpeed::WindSpeed(int pin)
 {
-	pinMode(pin, INPUT_PULLUP);
-
 	_lastTick = 0;
 }
 
@@ -78,10 +76,10 @@ double WindSpeed::getWindSpeed(int timePeriodInMinutes)
 		ticksForTimePeriod += _ticksPerMin[timePeriod];
 	}
 
-	Serial.print("[WindSpeed] Ticks=");
-	Serial.print(ticksForTimePeriod);
-	Serial.print(", timePeriodInMinutes=");
-	Serial.println(timePeriodInMinutes);
+	// Serial.print("[WindSpeed] Ticks=");
+	// Serial.print(ticksForTimePeriod);
+	// Serial.print(", timePeriodInMinutes=");
+	// Serial.println(timePeriodInMinutes);
 
 	// Convert ticks to average wind speed during time period
 	float result = (float)ticksForTimePeriod / (float)timePeriodInMinutes / 60.0 * WIND_SPEED_PER_TICK;
@@ -101,8 +99,8 @@ double WindSpeed::getGust()
 			gustTicks = _gustPerMin[_minute];
 	}
 
-	Serial.print("[WindSpeed] gustTicks=");
-	Serial.println(gustTicks);
+	// Serial.print("[WindSpeed] gustTicks=");
+	// Serial.println(gustTicks);
 
 	// Convert ticks for gust to wind speed
 	float result = (float)gustTicks / 2.0 * WIND_SPEED_PER_TICK;

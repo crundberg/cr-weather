@@ -7,8 +7,6 @@
 
 WindDir::WindDir(int pin, short indexOffset)
 {
-	pinMode(pin, INPUT_PULLUP);
-
 	_pin = pin;
 	_indexOffset = indexOffset;
 }
