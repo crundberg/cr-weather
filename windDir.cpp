@@ -11,6 +11,10 @@ WindDir::WindDir(int pin, short indexOffset)
 	_indexOffset = indexOffset;
 }
 
+void WindDir::begin()
+{
+}
+
 short WindDir::getWindDirIndex(int rawValue)
 {
 	short index = 0;

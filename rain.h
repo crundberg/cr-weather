@@ -8,6 +8,8 @@ public:
 	Rain(int pin);
 
 	void loop(int hour, int minute);
+
+	void begin();
 	double getRainForLastMinutes(int lastNoMinutes);
 	double getRainForLastHours(int lastNoHours);
 	double getRainForToday();
@@ -18,6 +20,8 @@ public:
 private:
 	double roundValue(float value);
 
+	int _pin;
+	
 	short _ticks;
 	unsigned long _lastTick;
 

@@ -20,6 +20,7 @@ class WindDir
 public:
 	WindDir(int pin, short indexOffset);
 
+	void begin();
 	void loop(int minute, int second);
 	WindDirection getWindDir(int timePeriodInMinutes);
 

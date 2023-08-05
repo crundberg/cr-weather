@@ -7,7 +7,13 @@
 
 WindSpeed::WindSpeed(int pin)
 {
+	_pin = pin;
 	_lastTick = 0;
+}
+
+void WindSpeed::begin()
+{
+	pinMode(_pin, INPUT_PULLUP);
 }
 
 void WindSpeed::count()

@@ -7,7 +7,13 @@
 
 Rain::Rain(int pin)
 {
+	_pin = pin;
 	_lastTick = 0;
+}
+
+void Rain::begin()
+{
+	pinMode(_pin, INPUT_PULLUP);
 }
 
 void Rain::count()

@@ -7,6 +7,7 @@ class WindSpeed
 public:
 	WindSpeed(int pin);
 
+	void begin();
 	void loop(int minute, int second);
 	double getWindSpeed(int lastNoMinutes);
 	double getGust();
@@ -17,6 +18,8 @@ public:
 private:
 	double roundValue(float value);
 
+	int _pin;
+	
 	short _ticks;
 	unsigned long _lastTick;
 	short _ticksLastSec;
