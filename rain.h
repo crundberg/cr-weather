@@ -14,6 +14,7 @@ public:
 	double getRainForLastHours(int lastNoHours);
 	double getRainForToday();
 	double getRainForYesterday();
+	unsigned long getTotaltTicks();
 
 	void count();
 
@@ -21,7 +22,7 @@ private:
 	double roundValue(float value);
 
 	int _pin;
-	
+
 	short _ticks;
 	unsigned long _lastTick;
 
@@ -30,6 +31,7 @@ private:
 
 	int _ticksToday;
 	int _ticksYesterday;
+	unsigned long _totaltTicks;
 
 	int _hour;
 	int _minute;

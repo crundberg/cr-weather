@@ -11,6 +11,7 @@
 #include "windSpeed.h"
 #include "windDir.h"
 #include "rain.h"
+#include "light.h"
 
 // Wifi
 const char *ssid = WIFI_SSID;
@@ -20,27 +21,19 @@ const char *password = WIFI_PASSWORD;
 IPAddress mqttServer MQTT_SERVER_IP;
 const char *mqttUser = MQTT_USER;
 const char *mqttPassword = MQTT_PASSWORD;
-const char *mqttRainTopic = "weather/rain";
-const char *mqttWindSpeedTopic = "weather/wind/speed";
-const char *mqttWindDirTopic = "weather/wind/direction";
-const char *mqttTempTopic = "weather/temp";
-const char *mqttLightTopic = "weather/light";
-const char *mqttUptimeTopic = "weather/uptime";
 unsigned long mqttLastReconnectAttempt = 0;
 
 WiFiClient espClient;
 PubSubClient client(espClient);
 
 // One Wire
-OneWire oneWire(ONE_WIRE_PIN);
+OneWire oneWire(9); // TODO: Fix pin number...
 DallasTemperature sensors(&oneWire);
 
 // Time
-unsigned long lastTime = 0;
 int second = 0;
 int minute = 0;
 int hour = 0;
-int day = 0;
 time_t rawTime;
 struct tm *timeInfo;
 int lastSecond = 0;
@@ -49,6 +42,17 @@ int lastSecond = 0;
 WindSpeed windSpeed(WIND_SPEED_PIN);
 WindDir windDir(WIND_DIRECTION_PIN, WIND_DIRECTION_OFFSET);
 Rain rain(RAIN_PIN);
+Light light(LIGHT_ADDR);
+
+void IRAM_ATTR windSpeedIsr()
+{
+	windSpeed.count();
+}
+
+void IRAM_ATTR rainIsr()
+{
+	rain.count();
+}
 
 void setup()
 {
@@ -58,26 +62,27 @@ void setup()
 
 	setupWifi();
 	setupMqtt();
-	setupI2C();
-	// setupOTA();
+	setupOTA();
 	setupTime();
 
-	pinMode(LED_RED, OUTPUT);
-	pinMode(LED_GREEN, OUTPUT);
+	// Setup one wire
+	sensors.begin();
+
+	// Setup I2C
+	Wire.begin();
+
+	// Setup sensors
+	windSpeed.begin();
+	windDir.begin();
+	rain.begin();
+	light.begin(&Wire);
+
+	// Setup LED
 	pinMode(LED_BLUE, OUTPUT);
 
-	attachInterrupt(digitalPinToInterrupt(WIND_SPEED_PIN), windSpeedIsr, FALLING);
-	attachInterrupt(digitalPinToInterrupt(RAIN_PIN), rainIsr, FALLING);
-}
-
-IRAM_ATTR void windSpeedIsr()
-{
-	windSpeed.count();
-}
-
-IRAM_ATTR void rainIsr()
-{
-	rain.count();
+	// Setup interrupts
+	attachInterrupt(WIND_SPEED_PIN, windSpeedIsr, FALLING);
+	attachInterrupt(RAIN_PIN, rainIsr, FALLING);
 }
 
 void setupWifi()
@@ -107,12 +112,6 @@ void setupMqtt()
 	client.setServer(mqttServer, 1883);
 }
 
-void setupI2C()
-{
-	Wire.begin();
-}
-
-/*
 void setupOTA()
 {
 	// OTA
@@ -128,30 +127,29 @@ void setupOTA()
 		}
 
 		// NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
-		Serial.println("Start updating " + type); });
+		Serial.println("[OTA] Start updating " + type); });
 
 	ArduinoOTA.onEnd([]()
-					 { Serial.println("\nEnd"); });
+					 { Serial.println("\n[OTA] End"); });
 	ArduinoOTA.onProgress([](unsigned int progress, unsigned int total)
-						  { Serial.printf("Progress: %u%%\r", (progress / (total / 100))); });
+						  { Serial.printf("[OTA] Progress: %u%%\r", (progress / (total / 100))); });
 	ArduinoOTA.onError([](ota_error_t error)
 					   {
    Serial.printf("Error[%u]: ", error);
    if (error == OTA_AUTH_ERROR) {
-	Serial.println("Auth Failed");
+	Serial.println("[OTA] Auth Failed");
    } else if (error == OTA_BEGIN_ERROR) {
-	Serial.println("Begin Failed");
+	Serial.println("[OTA] Begin Failed");
    } else if (error == OTA_CONNECT_ERROR) {
-	Serial.println("Connect Failed");
+	Serial.println("[OTA] Connect Failed");
    } else if (error == OTA_RECEIVE_ERROR) {
-	Serial.println("Receive Failed");
+	Serial.println("[OTA] Receive Failed");
    } else if (error == OTA_END_ERROR) {
-	Serial.println("End Failed");
+	Serial.println("[OTA] End Failed");
    } });
 
 	ArduinoOTA.begin();
 }
-*/
 
 void setupTime()
 {
@@ -180,7 +178,6 @@ bool updateTime()
 	time(&rawTime);
 	timeInfo = localtime(&rawTime);
 
-	day = timeInfo->tm_mday;
 	hour = timeInfo->tm_hour;
 	minute = timeInfo->tm_min;
 	second = timeInfo->tm_sec;
@@ -196,13 +193,14 @@ bool updateTime()
 
 void loop()
 {
-	// ArduinoOTA.handle();
+	ArduinoOTA.handle();
 
 	bool newSecond = updateTime();
 
 	windSpeed.loop(minute, second);
 	windDir.loop(minute, second);
 	rain.loop(hour, minute);
+	light.loop(minute, second);
 
 	everySecond(newSecond);
 	everyTenSecond(newSecond);
@@ -225,6 +223,7 @@ boolean mqttConnect()
 		Serial.print(client.state());
 		Serial.println(", retry in 5 seconds");
 	}
+
 	return client.connected();
 }
 
@@ -239,12 +238,11 @@ void mqttLoop()
 			mqttLastReconnectAttempt = now;
 			mqttConnect();
 		}
+
+		return;
 	}
-	else
-	{
-		// Client connected
-		client.loop();
-	}
+
+	client.loop();
 }
 
 void everySecond(bool newSecond)
@@ -253,7 +251,7 @@ void everySecond(bool newSecond)
 		return;
 
 	// Toggle led
-	digitalWrite(LED_BLUE, second % 2 == 0); // Blue
+	digitalWrite(LED_BLUE, second % 2 == 0);
 }
 
 void everyTenSecond(bool newSecond)
@@ -264,75 +262,61 @@ void everyTenSecond(bool newSecond)
 	if (second % 10 > 0)
 		return;
 
-	Serial.println("Every ten seconds event");
+	// Serial.println("[Event] Every ten seconds event");
 }
 
-void mqttPublish(const char *topic, StaticJsonDocument<200> jsonDocument, bool retained)
+void mqttPublish(const char *topic, double value, bool retained)
 {
-	char payload[MQTT_BUFFER_SIZE];
-	serializeJson(jsonDocument, payload);
-
 	// Publish to MQTT
+	bool result = client.publish(topic, String(value, 2).c_str(), false);
+
+	// Print message
+	return;
 	Serial.print("[MQTT] Publish ");
 	Serial.print(topic);
 	Serial.print(": ");
-	Serial.println(payload);
-	client.publish(topic, payload, retained);
+	Serial.print(value);
+	Serial.print(" (");
+	Serial.print(result);
+	Serial.println(")");
 }
 
-void everyMinute(bool newSecond)
+void mqttPublish(const char *topic, unsigned long value, bool retained)
 {
-	if (!newSecond)
-		return;
+	char buffer[10];
+	sprintf(buffer, "%d", value);
 
-	if (second > 0)
-		return;
+	// Publish to MQTT
+	bool result = client.publish(topic, buffer, false);
 
-	Serial.println("[Event] Every minute event");
-
-	// Temperature
-	temperature();
-
-	// Publish rain to MQTT
-	StaticJsonDocument<200> jsonDoc;
-	jsonDoc["last10M"] = rain.getRainForLastMinutes(10);
-	jsonDoc["last1H"] = rain.getRainForLastMinutes(60);
-	jsonDoc["today"] = rain.getRainForToday();
-	jsonDoc["yesterday"] = rain.getRainForYesterday();
-	mqttPublish(mqttRainTopic, jsonDoc, true);
-	jsonDoc.clear();
-
-	// Publish wind speed to MQTT
-	jsonDoc["avg1M"] = windSpeed.getWindSpeed(1);
-	jsonDoc["avg10M"] = windSpeed.getWindSpeed(10);
-	jsonDoc["avg1H"] = windSpeed.getWindSpeed(60);
-	jsonDoc["gust"] = windSpeed.getGust();
-	mqttPublish(mqttWindSpeedTopic, jsonDoc, true);
-	jsonDoc.clear();
-
-	// Publish wind direction to MQTT
-	WindDirection windDir1M = windDir.getWindDir(1);
-	WindDirection windDir10M = windDir.getWindDir(10);
-
-	jsonDoc["name"] = windDir1M.name;
-	jsonDoc["degree"] = windDir1M.degree;
-	jsonDoc["name10M"] = windDir10M.name;
-	jsonDoc["degree10M"] = windDir10M.degree;
-	mqttPublish(mqttWindDirTopic, jsonDoc, true);
-	jsonDoc.clear();
-
-	// Publish light
-	jsonDoc["value"] = 0;
-	jsonDoc["avg"] = 0;
-	mqttPublish(mqttLightTopic, jsonDoc, true);
-	jsonDoc.clear();
-
-	// Publish wind direction to MQTT
-	jsonDoc["millis"] = millis();
-	mqttPublish(mqttUptimeTopic, jsonDoc, false);
+	// Print message
+	return;
+	Serial.print("[MQTT] Publish ");
+	Serial.print(topic);
+	Serial.print(": ");
+	Serial.print(value);
+	Serial.print(" (");
+	Serial.print(result);
+	Serial.println(")");
 }
 
-void temperature()
+void mqttPublish(const char *topic, const char *value, bool retained)
+{
+	// Publish to MQTT
+	bool result = client.publish(topic, value, false);
+
+	// Print message
+	return;
+	Serial.print("[MQTT] Publish ");
+	Serial.print(topic);
+	Serial.print(": ");
+	Serial.print(value);
+	Serial.print(" (");
+	Serial.print(result);
+	Serial.println(")");
+}
+
+void publishTemperature()
 {
 	// Send the command to get temperatures
 	sensors.requestTemperatures();
@@ -353,9 +337,108 @@ void temperature()
 	double value = roundValue(temp, 1);
 
 	// Publish temperature to MQTT
-	StaticJsonDocument<200> jsonDoc;
-	jsonDoc["value"] = value;
-	mqttPublish(mqttTempTopic, jsonDoc, true);
+	char *topic = "weather/temp/value";
+	mqttPublish(topic, value, true);
+}
+
+void publishRain()
+{
+	char *topic = "weather/rain/last1M";
+	double value = rain.getRainForLastMinutes(1);
+	mqttPublish(topic, value, true);
+
+	topic = "weather/rain/last10M";
+	value = rain.getRainForLastMinutes(10);
+	mqttPublish(topic, value, true);
+
+	topic = "weather/rain/last1H";
+	value = rain.getRainForLastMinutes(60);
+	mqttPublish(topic, value, true);
+
+	topic = "weather/rain/today";
+	value = rain.getRainForToday();
+	mqttPublish(topic, value, true);
+
+	topic = "weather/rain/yesterday";
+	value = rain.getRainForYesterday();
+	mqttPublish(topic, value, true);
+
+	topic = "weather/rain/totaltTicks";
+	unsigned long totalTicks = rain.getTotaltTicks();
+	mqttPublish(topic, totalTicks, true);
+}
+
+void publishWindSpeed()
+{
+	char *topic = "weather/windSpeed/last1M";
+	double value = windSpeed.getWindSpeed(1);
+	mqttPublish(topic, value, true);
+
+	topic = "weather/windSpeed/last10M";
+	value = windSpeed.getWindSpeed(10);
+	mqttPublish(topic, value, true);
+
+	topic = "weather/windSpeed/last1H";
+	value = windSpeed.getWindSpeed(60);
+	mqttPublish(topic, value, true);
+
+	topic = "weather/windSpeed/gust";
+	value = windSpeed.getGust();
+	mqttPublish(topic, value, true);
+}
+
+void publishWindDir()
+{
+	WindDirection windDir1M = windDir.getWindDir(1);
+	WindDirection windDir10M = windDir.getWindDir(10);
+
+	char *topic = "weather/windDir/avg1M";
+	mqttPublish(topic, windDir1M.degree, true);
+
+	topic = "weather/windDir/avg1M/name";
+	mqttPublish(topic, windDir1M.name, true);
+
+	topic = "weather/windDir/avg10M";
+	mqttPublish(topic, windDir1M.degree, true);
+
+	topic = "weather/windDir/avg10M/name";
+	mqttPublish(topic, windDir10M.name, true);
+}
+
+void publishLight()
+{
+	char *topic = "weather/light/value";
+	unsigned long value = (double)light.getLux();
+	mqttPublish(topic, value, true);
+
+	topic = "weather/light/avg";
+	value = 0;
+	mqttPublish(topic, value, true);
+}
+
+void publishUptime()
+{
+	char *topic = "weather/debug/uptime";
+	unsigned long value = millis();
+	mqttPublish(topic, value, true);
+}
+
+void everyMinute(bool newSecond)
+{
+	if (!newSecond)
+		return;
+
+	if (second > 0)
+		return;
+
+	// Serial.println("[Event] Every minute event");
+
+	publishTemperature();
+	publishRain();
+	publishWindSpeed();
+	publishWindDir();
+	publishLight();
+	publishUptime();
 }
 
 double roundValue(float value, double noOfDecimals)

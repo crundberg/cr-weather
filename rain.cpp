@@ -21,7 +21,7 @@ void Rain::count()
 	// Serial.println("[Rain] Count");
 	unsigned long now = millis();
 
-	if (now - _lastTick > 15)
+	if (now - _lastTick > 50)
 	{
 		_ticks += 1;
 		_lastTick = now;
@@ -59,6 +59,7 @@ void Rain::loop(int hour, int minute)
 	_ticksPerMin[minute] += _ticks;
 	_ticksPerHour[hour] += _ticks;
 	_ticksToday += _ticks;
+	_totaltTicks += _ticks;
 
 	// Save data
 	_ticks = 0;
@@ -132,6 +133,11 @@ double Rain::getRainForToday()
 double Rain::getRainForYesterday()
 {
 	return roundValue(_ticksYesterday * RAIN_PER_TICK);
+}
+
+unsigned long Rain::getTotaltTicks()
+{
+	return _totaltTicks;
 }
 
 double Rain::roundValue(float value)
