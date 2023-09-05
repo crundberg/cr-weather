@@ -66,7 +66,7 @@ void WindDir::loop(int minute, int second)
 	int rawValue = analogRead(_pin);
 	short currentIndex = getWindDirIndex(rawValue);
 
-	if (currentIndex < 0)
+	if (currentIndex < 1)
 	{
 		Serial.print("[WindDir] Wind direction not found! ");
 		Serial.print("(Value=");
